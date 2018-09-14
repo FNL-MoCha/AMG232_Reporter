@@ -1,6 +1,6 @@
 #!/bin/bash
 # Wrapper script to launch the Annovar pipeline.
-VERSION='0.2.091118'
+VERSION='1.0.20180914'
 
 PLUGIN_DIR=$(dirname $(readlink -f $0) | sed 's/\/scripts//')
 ANNOVAR_ROOT="${PLUGIN_DIR}/lib/annovar/"
@@ -27,16 +27,14 @@ elif [[ ! -e $vcf ]]; then
     exit 1
 fi
 
-output=${vcf/\.*/.output}
-
 # Annovar cmd
 $ANNOVAR_ROOT/table_annovar.pl \
     -buildver hg19 \
     -polish \
     -remove \
     -nastring . \
-    -out $output \
     -protocol refGene,cosmic85,clinvar_20170905,popfreq_all_20150413 \
     -operation g,f,f,f \
+    -argument '-hgvs,-hgvs,-hgvs,-hgvs' \
     -vcfinput $vcf \
     $ANNOVAR_DB \
