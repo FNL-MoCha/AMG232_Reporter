@@ -25,6 +25,7 @@ EOT
 
 my $usage = <<"EOT";
 USAGE: $scriptname [options] <input_vcf_file>
+    -f, --filename  Name to use for the resultant output file. Default: <file>_flattened.vcf
     -v, --version   Version information
     -h, --help      Print this help information
 EOT
@@ -32,9 +33,10 @@ EOT
 my $help;
 my $ver_info;
 my $debug_pos;  # undocumented.
-my $vcf_output = 1;
+my $out_filename;
 
 GetOptions( 
+    "filename|f=s"  => \$out_filename,
     "debug_pos=s"   => \$debug_pos, #undocumented.
     "version|v"     => \$ver_info,
     "help|h"        => \$help )
@@ -55,9 +57,8 @@ version_info if $ver_info;
 
 # Check for vcftools; we can't run without it...for now.
 if ( ! qx(which vcftools) ) {
-    print "ERROR: Required package 'vcftools' is not installed on this system. ",
+    die "ERROR: Required package 'vcftools' is not installed on this system. ",
         "Install vcftools ('vcftools.sourceforge.net') and try again.\n";
-    exit 1;
 }
 
 # Implementing a debug position method to help with development.  This is an
@@ -78,8 +79,11 @@ if ( scalar( @ARGV ) < 1 ) {
 my $input_vcf = shift;
 
 # Set up output type
-my $output_type='vcf';
-(my $outfile = $input_vcf) =~ s/\.vcf/_flattened.vcf/;
+my $outfile;
+($out_filename)
+    ? ($outfile = $out_filename) 
+    : (($outfile = $input_vcf) =~ s/\.vcf/_flattened.vcf/);
+
 open(my $out_fh, ">", $outfile);
 
 #########--------------- END Arg Parsing and validation ---------------#########
