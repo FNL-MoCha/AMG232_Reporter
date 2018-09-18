@@ -1,21 +1,32 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 import sys
 import os
+import subprocess
+
 from ion.plugin import *
 
 class AMG232_Reporter(IonPlugin):
     """
     Plugin to generate a TP53 variant report in support of the AMG-232 study.
     """
-    version = '0.1.20180912'
+    version = '0.3.180912'
     major_block = False
-    allow_autorun = True
-    runtypes = [RunType.COMPOSITE]
-    runlevels = [RunLevel.DEFAULT] # XXX: Do we want "LAST" here?
-    depends = ['variantCaller']
+    runtypes = [RunType.FULLCHIP, RunType.THUMB, RunType.COMPOSITE]
+    runlevels = [RunLevel.DEFAULT]
+    depends = ["variantCaller"]
 
-    # Other attrs needed?
-    # startplugin = {}
-    # launch = True | False
-    # barcodetable_columns = []
+    def launch(self, data=None):
+        cmd = [
+            os.path.join(os.environ['DIRNAME'], 'amg232_reporter_plugin.py'),
+            '-V', self.version, 
+            '--halt', False,
+            'startplugin.json',
+            'barcodes.json'
+        ]
+        run_plugin = subprocess.Popen(cmd, stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE, env=os.environ)
+        run_plugin.communicate()
+        sys.exit(run_plugin.poll())
 
+if __name__ == '__main__':
+    PluginCLI()
