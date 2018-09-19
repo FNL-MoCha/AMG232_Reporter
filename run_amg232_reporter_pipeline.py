@@ -11,13 +11,16 @@ import argparse
 
 from pprint import pprint as pp
 
-version = '1.0.20180914'
+version = '1.1.20180919'
 
 # Globals
-output_root = os.getcwd()
+#output_root = os.getcwd()
+output_root = os.path.dirname(__file__)
 scripts_dir = os.path.join(output_root, 'scripts')
 resources = os.path.join(output_root, 'resource')
 lib = os.path.join(output_root, 'lib')
+
+debug = True
 
 def get_args():
     parser = argparse.ArgumentParser(description = __doc__)
@@ -35,6 +38,11 @@ def get_args():
     parser.add_argument('-v', '--version', action='version',
         version='%(prog)s - v' + version)
     args = parser.parse_args()
+    if debug:
+        sys.stderr.write('Args as passed to the script:\n')
+        pp(vars(args), stream=sys.stderr)
+        sys.stderr.write('\n')
+        sys.stderr.flush()
     return args
 
 def get_name_from_vcf(vcf):
@@ -122,6 +130,7 @@ def run(cmd, task):
     if proc.returncode != 0:
         sys.stderr.write('An error has occurred while trying to %s.\n' % task)
         sys.stderr.write(err.decode('utf-8'))
+        sys.stderr.flush()
         return 1
     return 0
 
@@ -144,13 +153,13 @@ def main(vcf, sample_name, genes, outdir):
     sys.stderr.write('Simplifying the VCF file.\n')
     sys.stderr.flush()
     simple_vcf = simplify_vcf(vcf, outdir_path)
-    sys.stderr.write('Done!\n')
+    #sys.stderr.write('Done!\n')
 
     # Annotate the vcf with ANNOVAR.
     sys.stderr.write('Annotating the simplified VCF with Annovar.\n')
     sys.stderr.flush()
     annovar_file = run_annovar(simple_vcf)
-    sys.stderr.write('Done.\n')
+    #sys.stderr.write('Done.\n')
 
     # Generate a filtered CSV file of results for the report.
     sys.stderr.write('Generating a report.\n')
