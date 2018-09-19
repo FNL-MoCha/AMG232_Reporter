@@ -9,7 +9,7 @@ class AMG232_Reporter(IonPlugin):
     """
     Plugin to generate a TP53 variant report in support of the AMG-232 study.
     """
-    version = '0.3.180912'
+    version = '0.6.20180919'
     major_block = False
     runtypes = [RunType.FULLCHIP, RunType.THUMB, RunType.COMPOSITE]
     runlevels = [RunLevel.DEFAULT]
@@ -19,14 +19,12 @@ class AMG232_Reporter(IonPlugin):
         cmd = [
             os.path.join(os.environ['DIRNAME'], 'amg232_reporter_plugin.py'),
             '-V', self.version, 
-            '--halt', False,
             'startplugin.json',
             'barcodes.json'
         ]
-        run_plugin = subprocess.Popen(cmd, stdout=subprocess.PIPE, 
-            stderr=subprocess.PIPE, env=os.environ)
-        run_plugin.communicate()
-        sys.exit(run_plugin.poll())
+        plugin = subprocess.Popen(cmd, stdout=subprocess.PIPE, shell=False)
+        plugin.communicate()
+        sys.exit(plugin.poll())
 
 if __name__ == '__main__':
     PluginCLI()
