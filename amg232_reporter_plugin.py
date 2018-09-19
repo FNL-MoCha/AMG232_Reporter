@@ -1,6 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Main Plugin code for the AMG-232 Reporter Plugin.
+# 
+# TODO:
+#    List of things to still accomplish
+#        1. Finish workingn on code.  Stopped at the html generation steps.
+#           Want to generate a block html page that will have the following:
+#               <barcode> <sample_name> <num_tp53_vars> <list_of_aa_muts?>
+#           At the bottom will be a link to download a zip file of all of the
+#           CSV files?
+#        2. Error checking / handling.  how can we deal with sample failures
+#        3. Optimization. Are there any steps that we can speed up?  Parallel
+#           process?
+#        4. Create an instance.html file to configure the plugin.  What if we
+#           want to change some runtime opts, like reporting other genes as well?
+#      
+# version: 0.6.20180919
 # 2018/09/17 - D Sims
 ################################################################################
 """
@@ -15,9 +30,13 @@ import subprocess
 import argparse
 import datetime
 import shutil
+import csv
 
 from pprint import pprint as pp
 
+# TODO: Not sure about these Django libs, but the bottom import template call
+#       is not working for me.  Get plugin running, and then figure out how if
+#       I need this and how to make it work.
 #from django.conf import settings
 #from django.template.loader import render_to_string
 #from django.conf import global_settings
@@ -27,25 +46,24 @@ from pprint import pprint as pp
 
 # Set up some logger defaults. 
 loglevel = 'debug' # Min level to be reported to log.
-logfile = sys.stdout
+logfile = sys.stderr
 
-barcode_input = {}
 plugin_params = {}
 plugin_result = {}
 plugin_report = {}
+
 barcode_summary = []
 barcode_report = {}
-help_dictionary = {}
 
 def get_plugin_config():
     global plugin_params
 
     parser = argparse.ArgumentParser(description = __doc__)
-    parser.add_argument('start_plugin_json')
-    parser.add_argument('barcodes_json')
+    parser.add_argument('start_plugin_json', metavar='startplugin.json')
+    parser.add_argument('barcodes_json', metavar='barcodes.json')
     parser.add_argument('-V', '--version', dest='version',
         help='Plugin version')
-    parser.add_argument('--halt', dest='halt_on_failure', 
+    parser.add_argument('--halt', dest='halt_on_failure', action='store_true',
         help='Stop plugin if any samples fail, otherwise, just skip the failed '
            'ones.')
     args = parser.parse_args()
@@ -54,8 +72,8 @@ def get_plugin_config():
 
     # Get some filepaths and whatnot from start_plugin.json
     startplugin_data = json_read(args.start_plugin_json)
-    wanted = ('analysis_dir', 'analysis_name', 'plugin_dir', 
-        'plugin_name', 'results_dir', 'run_name')
+    wanted = ('analysis_dir', 'analysis_name', 'plugin_dir', 'plugin_name', 
+        'results_dir', 'run_name')
 
     for elem in wanted:
         plugin_params[elem] = startplugin_data['runinfo'].get(elem, '')
@@ -67,23 +85,35 @@ def get_plugin_config():
     plugin_params['block_report'] = os.path.join(plugin_params['results_dir'],
         plugin_params['plugin_name'] + '_block.html')
 
+    plugin_params['prefix'] = startplugin_data['expmeta'].get(
+        'output_file_name_stem', '')
+    if not plugin_params['prefix']:
+        plugin_params['prefix'] = startplugin_data['expmeta'].get(
+            'run_name', 'auto')
+        if 'results_name' in startplugin_data['expmeta']:
+            plugin_params['prefix'] += '_' + startplugin_data['expmeta']['results_name']
     resurl = startplugin_data['runinfo'].get('results_dir', '.')
     plgpos = resurl.find('plugin_out')
-
     if plgpos >= 0:
         plugin_params['results_url'] = os.path.join(
             startplugin_data['runinfo'].get('url_root', '.'), resurl[plgpos:] 
         )
-    plugin_params['barcoded'] = not 'nonbarcoded' in barcode_input
 
+    # Read barcodes.json and make a sample manifest.
     barcode_data = json_read(args.barcodes_json)
+
     samples = {}
     for bc in barcode_data:
+
         if barcode_data[bc]['nucleotide_type'] != 'RNA': 
             if barcode_data[bc]['sample'] != 'NTC':
-                samples[bc] = barcode_data[bc].get('sample', '')
+                # If, for some reason, there is no sample name in the runinfo, then
+                # we'll have problems.  Use the barcode as a fallback.
+                samples[bc] = barcode_data[bc].get('sample') or bc
+
     plugin_params['samples'] = samples
     plugin_params['config'] = vars(args)
+    writelog('d', pp(plugin_params, stream=sys.stderr))
 
 def json_read(jdata):
     with open(jdata) as fh:
@@ -203,8 +233,16 @@ def run_plugin():
     results for each sample.
     """
 
+    # Create an initial empty barcodes summary report.
+    writelog('i', 'Processing {} barcodes...'.format(
+        len(plugin_params['vcfs'].keys())))
+    updateBarcodeSummaryReport('', True)
+
     for barcode, vcf in sorted(plugin_params['vcfs'].items()):
+        plugin_result[barcode] = {}
         sample_name = plugin_params['samples'][barcode]
+        plugin_result[barcode]['sample_name'] = sample_name
+
         outdir = os.path.join(plugin_params['results_dir'], 
                 sample_name + '_out')
         vcf = vcf.rstrip('.gz')
@@ -213,16 +251,9 @@ def run_plugin():
             'old path: {}\n\tnew_path: {}\n'.format(sample_name, outdir, vcf,
             new_path))
     
-        #TODO: cleanup
-        try:
-            os.mkdir(os.path.join(plugin_params['results_dir'], outdir))
-            shutil.move(vcf, new_path)
-        except:
-            raise
+        os.mkdir(os.path.join(plugin_params['results_dir'], outdir))
+        shutil.move(vcf, new_path)
 
-        # TODO: Can we parallelize this to speed it up.  Shouldn't need to worry
-        #       about processing more than 1 vcf at a time, unless it's an issue
-        #       with updating the barcodes table?
         writelog('i', 'Start processing sample %s...' % sample_name)
         cmd = [
             os.path.join(plugin_params['plugin_dir'], 
@@ -235,10 +266,89 @@ def run_plugin():
         writelog('d', 'cmd -> {}'.format(cmd))
         p = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
         stdout, stderr = p.communicate()
+        writelog('d', stderr.decode('utf-8'))
+        writelog('d', stdout.decode('utf-8'))
+        if p.returncode != 0:
+            writelog('e', 'Plugin failed during pipeline execution. Traced '
+                'error is: ')
+            writelog(None, stderr.decode('utf-8'))
+            return 1
+
+        results_file = os.path.join(
+            outdir, 'TSVC_variants_%s_simple.amg-232_report.csv' % sample_name
+        )
+        plugin_result[barcode]['results_file'] = results_file
+        result, num_vars, var_report = parse_results(results_file)
+        plugin_result[barcode]['result'] = result
+        plugin_result[barcode]['num_vars'] = num_vars
+        plugin_result[barcode]['variant_report'] = var_report
+
+        writelog('i', '{} result: {}'.format(sample_name, result))
+        writelog('d', pp(var_report, stream=sys.stderr))
         writelog('i', 'Done with sample %s.' % sample_name)
 
+def parse_results(results_csv):
+    result = ''
+    variants = []
+    with open(results_csv) as fh:
+        data = csv.DictReader(fh)
+        variants = list(data)
+        num_vars = len(variants)
+        if num_vars == 0:
+            result = 'No mutation detected.'
+        else:
+            result = 'Found %s TP53 variants.' % num_vars
+    return result, num_vars, variants       
 
-    __exit__('Stopped at `run_plugin()` after subprocess call.')
+def updateBarcodeSummaryReport(barcode, autoRefresh=False):
+    """
+    Create a barcode summary (progress) report. Called before, during, and after
+    barcodes are being analyzed.
+    """
+    global barcode_summary
+    if barcode != '':
+        result_data = plugin_result['barcodes'][barcode]
+        report_data = plugin_report['barcodes'][barcode]
+        errmsg = result_data.get('Error', '')
+        sample = result_data['Sample Name']
+        if sample == '':
+            sample = 'None'
+        if errmsg != '':
+            details_link = "<span class='help' title='{}' style='color:red>{}</span>".format(errmsg, barcode)
+            barcode_summary.append({
+                'index' : len(barcode_summary),
+                'barcode_name' : barcode,
+                'barcode_details' : details_link,
+                'sample' : sample,
+                'sample_ID' : 'NA'
+            })
+        else:
+            details_link = "<a target='_parent' href='{}' class='help'><span title='Click to view the detailed report for barcode {}'>{}</span><a>".format(
+                os.path.join(barcode, plugin_params['report_name']),
+                barcode,
+                barcode
+            )
+            barcode_summary.append({
+                'index' : len(barcode_summary),
+                'barcode_name' : barcode,
+                'barcode_details' : details_link,
+                'sample' : sample,
+            })
+        render_context = {
+            'autorefresh' : autoRefresh,
+            'run_name' : plugin_params['prefix'], 
+            'barcode_results' : json.dumps(barcode_summary)
+        }
+        if barcode_report:
+            render_context.update(barcode_report)
+            createReport(
+                os.path.join(
+                    plugin_params['results_dir'], 
+                    plugin_params['report_name']
+                ), 
+                'barcode_summary.html', 
+                render_context
+            )
 
 def plugin_main():
     # Get the plugin configuration and sample info
@@ -263,24 +373,23 @@ def plugin_main():
     # Figure out the latest TVC run, and get those VCFs for processing.
     plugin_out_root = os.path.dirname(plugin_params['results_dir'])
 
-    #TODO: Comment this back in. No need to keep running over and over until
-    # we have this running.
-    #collect_vcfs(plugin_out_root)
-    writelog('d', '******************************* YOU MUST TURN THE COLLECT '
-        'VCFS METHOD BACK ON  ***************************')
-    vcfs_to_proc = {'IonXpress_011': '/results/analysis/output/Home/Auto_user_S5-MC4-264-20180830.OCAv3.MATCH.Sequencing.OT2.MSM_961_503/plugin_out/AMG232_Reporter_out.943/TSVC_variants_IonXpress_011.vcf.gz', 'IonXpress_013': '/results/analysis/output/Home/Auto_user_S5-MC4-264-20180830.OCAv3.MATCH.Sequencing.OT2.MSM_961_503/plugin_out/AMG232_Reporter_out.943/TSVC_variants_IonXpress_013.vcf.gz', 'IonXpress_015': '/results/analysis/output/Home/Auto_user_S5-MC4-264-20180830.OCAv3.MATCH.Sequencing.OT2.MSM_961_503/plugin_out/AMG232_Reporter_out.943/TSVC_variants_IonXpress_015.vcf.gz', 'IonXpress_017': '/results/analysis/output/Home/Auto_user_S5-MC4-264-20180830.OCAv3.MATCH.Sequencing.OT2.MSM_961_503/plugin_out/AMG232_Reporter_out.943/TSVC_variants_IonXpress_017.vcf.gz', 'IonXpress_009': '/results/analysis/output/Home/Auto_user_S5-MC4-264-20180830.OCAv3.MATCH.Sequencing.OT2.MSM_961_503/plugin_out/AMG232_Reporter_out.943/TSVC_variants_IonXpress_009.vcf.gz', 'IonXpress_007': '/results/analysis/output/Home/Auto_user_S5-MC4-264-20180830.OCAv3.MATCH.Sequencing.OT2.MSM_961_503/plugin_out/AMG232_Reporter_out.943/TSVC_variants_IonXpress_007.vcf.gz', 'IonXpress_001': '/results/analysis/output/Home/Auto_user_S5-MC4-264-20180830.OCAv3.MATCH.Sequencing.OT2.MSM_961_503/plugin_out/AMG232_Reporter_out.943/TSVC_variants_IonXpress_001.vcf.gz', 'IonXpress_003': '/results/analysis/output/Home/Auto_user_S5-MC4-264-20180830.OCAv3.MATCH.Sequencing.OT2.MSM_961_503/plugin_out/AMG232_Reporter_out.943/TSVC_variants_IonXpress_003.vcf.gz'} 
-
-    plugin_params['vcfs'] = vcfs_to_proc
+    # Collect the VCFs from TVC and stage them for processing.
+    collect_vcfs(plugin_out_root)
 
     # Start running the pipeline on our samples.
-    run_plugin()
-    # XXX
-    __exit__()
+    if run_plugin():
+        return 1
+    # TODO: How can I make the output html files.  Everything is now working OK, 
+    #       but I need to figure out how to make the block.html and report.html 
+    #       pages for the output.  I think I see how smaple ID is doing it (just
+    #       look at the output from one of the runs), but the code to generate 
+    #       these files is complicated.  Maybe I find a simpler way (as I did 
+    #       with the actual plugin running to begin with!
+    __exit__('Stopping after generating the pluign data. Need to finish figuring '
+        'out how to generate output links.')
 
     writelog('i', 'AMG-232 Reporter has finished.\n')
     return 0
 
-
-    
 if __name__ == '__main__':
     exit(plugin_main())
