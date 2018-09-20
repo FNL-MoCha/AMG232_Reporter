@@ -347,8 +347,9 @@ def updateBarcodeSummaryReport(barcode, autorefresh=False):
     """
     global barcode_summary
     if barcode != '':
-        result_data = plugin_result['barcodes'][barcode]
-        report_data = plugin_report['barcodes'][barcode]
+        result_data = plugin_result[barcode]
+        # XXX see if we really even need this bit.
+        #report_data = plugin_report[barcode]
     
         sample = result_data.get('sample_name') or 'None'
 
