@@ -1,6 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # Main Plugin code for the AMG-232 Reporter Plugin.
+# ..note::
+#    Wanted to write in Python3, but Django libs not installed for Python3!
 # 
 # TODO:
 #    List of things to still accomplish
@@ -15,7 +17,7 @@
 #        4. Create an instance.html file to configure the plugin.  What if we
 #           want to change some runtime opts, like reporting other genes as well?
 #      
-# version: 0.6.20180919
+# version: 0.7.20180920
 # 2018/09/17 - D Sims
 ################################################################################
 """
@@ -24,6 +26,7 @@ run.
 """
 import sys
 import os
+import re
 import inspect
 import json
 import subprocess
@@ -34,15 +37,14 @@ import csv
 
 from pprint import pprint as pp
 
-# TODO: Not sure about these Django libs, but the bottom import template call
-#       is not working for me.  Get plugin running, and then figure out how if
-#       I need this and how to make it work.
-#from django.conf import settings
-#from django.template.loader import render_to_string
-#from django.conf import global_settings
-#global_settings.LOGGING_CONFIG=None
+from django.conf import settings
+from django.template.loader import render_to_string
+from django.conf import global_settings
+global_settings.LOGGING_CONFIG=None
 
-#from django import template
+from django import template
+register = template.Library()
+template.builtins.append(register)
 
 # Set up some logger defaults. 
 loglevel = 'debug' # Min level to be reported to log.
@@ -233,12 +235,18 @@ def run_plugin():
     results for each sample.
     """
 
+    tot_barcodes = len(plugin_params['vcfs'].keys())
+
     # Create an initial empty barcodes summary report.
-    writelog('i', 'Processing {} barcodes...'.format(
-        len(plugin_params['vcfs'].keys())))
+    writelog('i', 'Processing %d barcodes...' % tot_barcodes)
+    # XXX
+    # NOTE: no idea why this is called here.  Seems there's nothing updated yet and
+    # this just returns nothing?
     updateBarcodeSummaryReport('', True)
 
+    processed = 0
     for barcode, vcf in sorted(plugin_params['vcfs'].items()):
+        processed += 1
         plugin_result[barcode] = {}
         sample_name = plugin_params['samples'][barcode]
         plugin_result[barcode]['sample_name'] = sample_name
@@ -255,6 +263,10 @@ def run_plugin():
         shutil.move(vcf, new_path)
 
         writelog('i', 'Start processing sample %s...' % sample_name)
+        createProgressReport('Processing sample {} of {}...'.format(
+            processed, tot_barcodes)
+        )
+
         cmd = [
             os.path.join(plugin_params['plugin_dir'], 
                 'run_amg232_reporter_pipeline.py'),
@@ -263,11 +275,18 @@ def run_plugin():
             '-o', outdir,
             new_path
         ]
+        # XXX
         writelog('d', 'cmd -> {}'.format(cmd))
         p = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
         stdout, stderr = p.communicate()
-        writelog('d', stderr.decode('utf-8'))
-        writelog('d', stdout.decode('utf-8'))
+
+        # XXX Get rid of what we don't need.
+        writelog('d', 'stderr: {}'.format(stderr.decode('utf-8')))
+        writelog('d', 'stdout: {}'.format(stdout.decode('utf-8')))
+
+        # TODO: Do we want to soldier on here but report an error for a specific 
+        #       sample?  I think so, but let's get this up and running first. See
+        # 684 - 696 in sampleID_plugin.py for example. 
         if p.returncode != 0:
             writelog('e', 'Plugin failed during pipeline execution. Traced '
                 'error is: ')
@@ -277,8 +296,8 @@ def run_plugin():
         results_file = os.path.join(
             outdir, 'TSVC_variants_%s_simple.amg-232_report.csv' % sample_name
         )
-        plugin_result[barcode]['results_file'] = results_file
         result, num_vars, var_report = parse_results(results_file)
+        plugin_result[barcode]['results_file'] = results_file
         plugin_result[barcode]['result'] = result
         plugin_result[barcode]['num_vars'] = num_vars
         plugin_result[barcode]['variant_report'] = var_report
@@ -286,6 +305,27 @@ def run_plugin():
         writelog('i', '{} result: {}'.format(sample_name, result))
         writelog('d', pp(var_report, stream=sys.stderr))
         writelog('i', 'Done with sample %s.' % sample_name)
+
+        # TODO: At this stage is when to crete the Detailed report and whatnot.
+        # Detailed report is for each individual sample.  Hold off on this for now,
+        # just focus on block report.
+
+        # createDetailedReport()
+        # createScraperLinksFolder()
+
+        updateBarcodeSummaryReport(barcode, True)
+
+    createProgressReport('Compiling barcode summary report...', True)
+
+    # TF calls run_meta_plugin() here.
+
+
+    updateBarcodeSummaryReport('')
+
+    #if create_scraper:
+        #createScraperLinksFolder(plugin_params['results_dir'], 
+            #plugin_params['prefix']
+        #)
 
 def parse_results(results_csv):
     result = ''
@@ -300,7 +340,7 @@ def parse_results(results_csv):
             result = 'Found %s TP53 variants.' % num_vars
     return result, num_vars, variants       
 
-def updateBarcodeSummaryReport(barcode, autoRefresh=False):
+def updateBarcodeSummaryReport(barcode, autorefresh=False):
     """
     Create a barcode summary (progress) report. Called before, during, and after
     barcodes are being analyzed.
@@ -309,46 +349,39 @@ def updateBarcodeSummaryReport(barcode, autoRefresh=False):
     if barcode != '':
         result_data = plugin_result['barcodes'][barcode]
         report_data = plugin_report['barcodes'][barcode]
-        errmsg = result_data.get('Error', '')
-        sample = result_data['Sample Name']
-        if sample == '':
-            sample = 'None'
-        if errmsg != '':
-            details_link = "<span class='help' title='{}' style='color:red>{}</span>".format(errmsg, barcode)
-            barcode_summary.append({
-                'index' : len(barcode_summary),
-                'barcode_name' : barcode,
-                'barcode_details' : details_link,
-                'sample' : sample,
-                'sample_ID' : 'NA'
-            })
-        else:
-            details_link = "<a target='_parent' href='{}' class='help'><span title='Click to view the detailed report for barcode {}'>{}</span><a>".format(
-                os.path.join(barcode, plugin_params['report_name']),
-                barcode,
-                barcode
-            )
-            barcode_summary.append({
-                'index' : len(barcode_summary),
-                'barcode_name' : barcode,
-                'barcode_details' : details_link,
-                'sample' : sample,
-            })
-        render_context = {
-            'autorefresh' : autoRefresh,
-            'run_name' : plugin_params['prefix'], 
-            'barcode_results' : json.dumps(barcode_summary)
-        }
-        if barcode_report:
-            render_context.update(barcode_report)
-            createReport(
-                os.path.join(
-                    plugin_params['results_dir'], 
-                    plugin_params['report_name']
-                ), 
-                'barcode_summary.html', 
-                render_context
-            )
+    
+        sample = result_data.get('sample_name') or 'None'
+
+        # TODO: Instead of a link to a full report right here, for now, just link 
+        #       to the CSV file of data.
+        details_link = "<a target='_parent' href='{}' class='help'><span title='Click to view the detailed report for barcode {}'>{}</span><a>".format(
+            os.path.join(barcode, plugin_params['report_name']),
+            barcode,
+            barcode
+        )
+        barcode_summary.append({
+            'index' : len(barcode_summary),
+            'barcode_name' : barcode,
+            'barcode_details' : details_link,
+            'sample' : sample,
+        })
+
+    render_context = {
+        'autorefresh' : autorefresh,
+        'run_name' : plugin_params['prefix'], 
+        'barcode_results' : json.dumps(barcode_summary)
+    }
+
+    if barcode_report:
+        render_context.update(barcode_report)
+        createReport(
+            os.path.join(
+                plugin_params['results_dir'], 
+                plugin_params['report_name']
+            ), 
+            'barcode_summary.html', 
+            render_context
+        )
 
 def plugin_main():
     # Get the plugin configuration and sample info
@@ -385,11 +418,84 @@ def plugin_main():
     #       look at the output from one of the runs), but the code to generate 
     #       these files is complicated.  Maybe I find a simpler way (as I did 
     #       with the actual plugin running to begin with!
+
+    # TF now calls wrap_up() to generate the block report.
+
+    if not 'Error' in plugin_result:
+        createBlockReport()
+
+    writelog('i', 'Writing results.json...')
+    jsonfile = os.path.join(plugin_params['results_dir'], 'results.json')
+    with open(jsonfile) as outfile:
+        json.dump(plugin_result, indent=4, sort_keys=True)
+
     __exit__('Stopping after generating the pluign data. Need to finish figuring '
         'out how to generate output links.')
 
+
     writelog('i', 'AMG-232 Reporter has finished.\n')
     return 0
+
+def safeKeys(indict):
+    """
+    Recursive method to return a dictionary with key names that do not contain
+    non-alphanumeric keys (e.g. spaces).  Any such keys will be replaced with
+    underscores. Lists, tuples, and / or strings are returned as is.
+    """
+
+    # We got a list or tuple; recursively process it.
+    if isinstance(indict, (list, tuple)):
+        nlist = []
+        for item in indict:
+            nlist.append(safeKeys(item))
+        return nlist
+    # We got a str; return it as is
+    if not isinstance(indict, dict):
+        return indict
+    # We got a dict; fix the keys and recurse to look for more dicts.
+    retdict = {}
+    for key, value in indict.iteritems():
+        retdict[re.sub(r'[^0-9A-Za-z]', '_', key)] = safeKeys(value)
+    return retdict
+
+def createProgressReport(progress_msg, last=False):
+    """
+    General method to write a message directly to the block report.
+    """
+    data = {
+        'progress_text' : progress_msg,
+        'refresh' : '' if last else 'refresh'
+    }
+    createReport(plugin_params['block_report'], 'progress_block.html', data)
+
+def createBlockReport():
+    """
+    Called at the end of the run to create a block.html report.
+    """
+    #XXX TODO: Stopped here.  Need to figure out how to configure this correctly 
+    #          to output the data we want.
+    __exit__("Stopping at the createBlockReport() method. Need to finish this part.")
+    writelog('i', 'Creating a block report...')
+    render_context = {
+        'run_name' : plugin_params['prefix'],
+        'barcode_results' : json.dumps(barcode_summary)
+    }
+    template = 'barcode_block.html'
+    createReport(plugin_params['block_report'], template, render_context)
+
+def createReport(report_name, report_template, report_data):
+    """
+    Master report method. Create the desired HTML report page based on a template 
+    and some data.
+    """
+    if not settings.configured:
+        plugin_dir = plugin_params.get('plugin_dir') or os.path.realpath(__file__)
+        settings.configure(DEBUG=False, TEMPLATE_DEBUG=False, 
+            INSTALLED_APPS=('django.contrib.humanize',),
+            TEMPLATE_DIRS=(os.path.join(plugin_dir, 'templates'),)
+        )
+    with open(report_name, 'w') as fh:
+        fh.write(render_to_string(report_template, safeKeys(report_data)))
 
 if __name__ == '__main__':
     exit(plugin_main())
