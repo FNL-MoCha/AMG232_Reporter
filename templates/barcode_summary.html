@@ -30,17 +30,15 @@
   body {background:white}
   .help {cursor:help; border-bottom: 1px dotted #A9A9A9}
 </style>
-
 </head>
 
 <title>AMG-232 Reporter Report</title>
-<body>
 
+<body>
 <div class="container-fluid">
 
 <h1><center>AMG-232 TP53 Report</center></h1>
-<h3><center>{{run_name}}<center></h3>
-<h2><center>Barcode Summary</center></h2>
+<h3><center>{{sample_name}} Variant Report Summary<center></h3>
 
 <script type="text/javascript">
   function numberWithCommas(x) {
@@ -52,7 +50,7 @@
 
 <!-- Capture django variable in to javascript -->
 <script>
-  var barcodes_json = {{barcode_results|safe}};
+  var barcodes_json = {{variant_report|safe}};
 </script>
 
 <script type="text/javascript">
@@ -68,24 +66,19 @@ $(document).ready(function() {
       dataSource: {
         data: barcodes_json,
         schema: { model: { fields: {
-          barcode_name: {type:"string"},
-          sample_name: {type:"string"},
-          chromosome: {type:"string"},
-          position: {type:"string"},
-          
-          ref_allele: {type:"string"},
-          alt_allele: {type:"string"},
-          gene: {type:"string"},
-          transcript: {type:"string"},
-          cds: {type:"string"},
-          aa: {type:"string"},
-          var_func: {type:"string"},
+          Chr: {type:"string"},
+          Pos: {type:"string"},
+          Ref: {type:"string"},
+          Alt: {type:"string"},
+          Gene: {type:"string"},
+          Transcript: {type:"string"},
+          CDS: {type:"string"},
+          AA: {type:"string"},
+          Function: {type:"string"},
         } } },
         pageSize: 10
       },
       columns: [
-        {field:"barcode_name"},
-        {field:"sample_name"},
         {field:"Chr"},
         {field:"Pos"},
         {field:"Ref"},
@@ -106,8 +99,6 @@ $(document).ready(function() {
   <table id="barcodes" style="width:100%">
     <thead>
     <tr>
-      <th title="Name of the barcode sequence and link to detailed report for reads associated with that barcode.">Barcode Name</th>
-      <th title="Sample Name associated with this barcode in the experiment plan.">Sample</th>
       <th title="Chromosome on which this variant occurs.">Chr</th>
       <th title="GRCh37 (hg19) position at which this change occurs.">Position</th>
       <th title="Reference sequence at this position.">Ref</th>
@@ -119,22 +110,25 @@ $(document).ready(function() {
       <th title="Functional consequence of the observed variant on the protein.">Function</th>
     </tr>
     </thead>
-    <!-- TODO: have to figure out how to code this! Also what to do if there is no result?
+
     <script id="barcodesRowTemplate" type="text/x-kendo-tmpl">
       <tr>
-        <td> #= barcode_details #</td>
-        <td> #= (sample) ? sample : "None" #</td>
-        <td>#= sample_id #</td>
-        <td>#= coverage #</td>
-        <td>#= pc_tracking_reads #</td>
+        <td>#= Chr #</td>
+        <td>#= Pos #</td>
+        <td>#= Ref #</td>
+        <td>#= Alt #</td>
+        <td>#= Gene #</td>
+        <td>#= Transcript #</td>
+        <td>#= CDS #</td>
+        <td>#= AA #</td>
+        <td>#= Function #</td>
       </tr>
     </script>
-    -->
   </table>
 </div>
 
-{% if bctable %}
-<li><a href="{{bctable}}" title='Click to download a table file of the Barcode Summary Report presented above.'>Download Barcode Summary Report</a></li>
+{% if results_file %}
+<li><a href="{{results_file}}" title='Click to download a table file of the Barcode Summary Report presented above.'>Download Sample Variant Report CSV File</a></li>
 {% endif %}
 
 {% if autorefresh %}
@@ -142,24 +136,8 @@ $(document).ready(function() {
 <a href="javascript:document.location.reload();" ONMOUSEOVER="window.status='Refresh'; return true">
 <div style="text-align:center">Click here to refresh</div></a>
 {% endif %}
-
 </div>
-
 <br/>
-
-<!--
-<div class="footer" style="width:100%"> <div class="container"> <div class="row"> <div class="span12">
-  <img class="pull-left" src="/site_media/resources/img/ion-logo2.png" border="0">
-  <div class="pull-right">
-    <p>This is for research use only. It is not intended for any animal or human therapeutic or diagnostic use.</p>
-    <p><span class="copyright">&copy; 2014 Life Technologies Corporation. All Rights Reserved.</span>
-
-    <a href="/licenses/terms-of-use.txt">Terms &amp; Conditions</a></p>
-  </div>
-</div> </div> </div> </div>
-<br/>
--->
-
 </body>
 </html>
 
