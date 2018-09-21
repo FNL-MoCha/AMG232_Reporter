@@ -17,7 +17,7 @@
 #        4. Create an instance.html file to configure the plugin.  What if we
 #           want to change some runtime opts, like reporting other genes as well?
 #      
-# version: 0.7.20180920
+# version: 0.9.20180921
 # 2018/09/17 - D Sims
 ################################################################################
 """
@@ -50,11 +50,15 @@ template.builtins.append(register)
 loglevel = 'debug' # Min level to be reported to log.
 logfile = sys.stderr
 
-plugin_params = {}
-plugin_result = {}
-plugin_report = {}
+plugin_params = {} # Holder for all plugin parameters
+plugin_result = {} # Holder for all plugin results
 
-barcode_summary = []
+# Barcode summary data that is parsed by the html renderer for block report.
+barcode_summary = [] 
+
+# XXX
+# Not sure what these are for yet.
+plugin_report = {}
 barcode_report = {}
 
 def get_plugin_config():
@@ -229,104 +233,6 @@ def collect_vcfs(plugin_root):
         'processing.'.format(len(plugin_params['vcfs'].keys())))
     writelog('d', 'All VCFs -> {}'.format(plugin_params['vcfs']))
 
-def run_plugin():
-    """
-    Run the `run_amg232_pipeline.py` script on each VCF file, creating a dir of
-    results for each sample.
-    """
-
-    tot_barcodes = len(plugin_params['vcfs'].keys())
-
-    # Create an initial empty barcodes summary report.
-    writelog('i', 'Processing %d barcodes...' % tot_barcodes)
-    # XXX
-    # NOTE: no idea why this is called here.  Seems there's nothing updated yet and
-    # this just returns nothing?
-    updateBarcodeSummaryReport('', True)
-
-    processed = 0
-    for barcode, vcf in sorted(plugin_params['vcfs'].items()):
-        processed += 1
-        plugin_result[barcode] = {}
-        sample_name = plugin_params['samples'][barcode]
-        plugin_result[barcode]['sample_name'] = sample_name
-
-        outdir = os.path.join(plugin_params['results_dir'], 
-                sample_name + '_out')
-        vcf = vcf.rstrip('.gz')
-        new_path = os.path.join(outdir, os.path.basename(vcf))
-        writelog('d', '\n  Pipeline Components:\n\tsample: {}\n\toutdir: {}\n\t'
-            'old path: {}\n\tnew_path: {}\n'.format(sample_name, outdir, vcf,
-            new_path))
-    
-        os.mkdir(os.path.join(plugin_params['results_dir'], outdir))
-        shutil.move(vcf, new_path)
-
-        writelog('i', 'Start processing sample %s...' % sample_name)
-        createProgressReport('Processing sample {} of {}...'.format(
-            processed, tot_barcodes)
-        )
-
-        cmd = [
-            os.path.join(plugin_params['plugin_dir'], 
-                'run_amg232_reporter_pipeline.py'),
-            '-g', 'TP53',
-            '-n', sample_name,
-            '-o', outdir,
-            new_path
-        ]
-        # XXX
-        writelog('d', 'cmd -> {}'.format(cmd))
-        p = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
-        stdout, stderr = p.communicate()
-
-        # XXX Get rid of what we don't need.
-        writelog('d', 'stderr: {}'.format(stderr.decode('utf-8')))
-        writelog('d', 'stdout: {}'.format(stdout.decode('utf-8')))
-
-        # TODO: Do we want to soldier on here but report an error for a specific 
-        #       sample?  I think so, but let's get this up and running first. See
-        # 684 - 696 in sampleID_plugin.py for example. 
-        if p.returncode != 0:
-            writelog('e', 'Plugin failed during pipeline execution. Traced '
-                'error is: ')
-            writelog(None, stderr.decode('utf-8'))
-            return 1
-
-        results_file = os.path.join(
-            outdir, 'TSVC_variants_%s_simple.amg-232_report.csv' % sample_name
-        )
-        result, num_vars, var_report = parse_results(results_file)
-        plugin_result[barcode]['results_file'] = results_file
-        plugin_result[barcode]['result'] = result
-        plugin_result[barcode]['num_vars'] = num_vars
-        plugin_result[barcode]['variant_report'] = var_report
-
-        writelog('i', '{} result: {}'.format(sample_name, result))
-        writelog('d', pp(var_report, stream=sys.stderr))
-        writelog('i', 'Done with sample %s.' % sample_name)
-
-        # TODO: At this stage is when to crete the Detailed report and whatnot.
-        # Detailed report is for each individual sample.  Hold off on this for now,
-        # just focus on block report.
-
-        # createDetailedReport()
-        # createScraperLinksFolder()
-
-        updateBarcodeSummaryReport(barcode, True)
-
-    createProgressReport('Compiling barcode summary report...', True)
-
-    # TF calls run_meta_plugin() here.
-
-
-    updateBarcodeSummaryReport('')
-
-    #if create_scraper:
-        #createScraperLinksFolder(plugin_params['results_dir'], 
-            #plugin_params['prefix']
-        #)
-
 def parse_results(results_csv):
     result = ''
     variants = []
@@ -340,102 +246,25 @@ def parse_results(results_csv):
             result = 'Found %s TP53 variants.' % num_vars
     return result, num_vars, variants       
 
-def updateBarcodeSummaryReport(barcode, autorefresh=False):
+def purge_old_results():
     """
-    Create a barcode summary (progress) report. Called before, during, and after
-    barcodes are being analyzed.
+    If there is already plugin result data present, get rid of it to make room for
+    new data. This shouldn't be an issue with a normally run plugin. But CLI runs
+    are a different beast!.
+
+    NOTE: For now, just focusing on the IonXpress results since we want to keep 
+          reusing the barcodes.json and startplugin.json files.
     """
-    global barcode_summary
-    if barcode != '':
-        result_data = plugin_result[barcode]
-        # XXX see if we really even need this bit.
-        #report_data = plugin_report[barcode]
-    
-        sample = result_data.get('sample_name') or 'None'
-
-        # TODO: Instead of a link to a full report right here, for now, just link 
-        #       to the CSV file of data.
-        details_link = "<a target='_parent' href='{}' class='help'><span title='Click to view the detailed report for barcode {}'>{}</span><a>".format(
-            os.path.join(barcode, plugin_params['report_name']),
-            barcode,
-            barcode
-        )
-        barcode_summary.append({
-            'index' : len(barcode_summary),
-            'barcode_name' : barcode,
-            'barcode_details' : details_link,
-            'sample' : sample,
-        })
-
-    render_context = {
-        'autorefresh' : autorefresh,
-        'run_name' : plugin_params['prefix'], 
-        'barcode_results' : json.dumps(barcode_summary)
-    }
-
-    if barcode_report:
-        render_context.update(barcode_report)
-        createReport(
-            os.path.join(
-                plugin_params['results_dir'], 
-                plugin_params['report_name']
-            ), 
-            'barcode_summary.html', 
-            render_context
-        )
-
-def plugin_main():
-    # Get the plugin configuration and sample info
-    get_plugin_config()
-
-    # Write a nice start up message with some info about the config.
-    writelog('i', 'AMG-232 Reporter has started')
-    writelog('i', 'Run configuration:')
-
-    writelog(None, 'Plugin name: {}'.format(plugin_params['plugin_name']))
-    writelog(None, 'Plugin version: {}'.format(plugin_params['version']))
-    writelog(None, 'Plugin root dir: {}'.format(plugin_params['plugin_dir']))
-    writelog(None, 'Run name: {}'.format(plugin_params['run_name']))
-    writelog(None, 'Analysis dir: {}'.format(plugin_params['analysis_dir']))
-    writelog(None, 'Results dir: {}'.format(plugin_params['results_dir']))
-    writelog(None, 'Barcodes:')
-    for b, s in sorted(plugin_params['samples'].items()):
-        writelog(None, '\t{}  {}'.format(b,s))
-    writelog('i', 'There are {} samples to process.'.format(
-        len(plugin_params['samples'].items())))
-
-    # Figure out the latest TVC run, and get those VCFs for processing.
-    plugin_out_root = os.path.dirname(plugin_params['results_dir'])
-
-    # Collect the VCFs from TVC and stage them for processing.
-    collect_vcfs(plugin_out_root)
-
-    # Start running the pipeline on our samples.
-    if run_plugin():
-        return 1
-    # TODO: How can I make the output html files.  Everything is now working OK, 
-    #       but I need to figure out how to make the block.html and report.html 
-    #       pages for the output.  I think I see how smaple ID is doing it (just
-    #       look at the output from one of the runs), but the code to generate 
-    #       these files is complicated.  Maybe I find a simpler way (as I did 
-    #       with the actual plugin running to begin with!
-
-    # TF now calls wrap_up() to generate the block report.
-
-    if not 'Error' in plugin_result:
-        createBlockReport()
-
-    writelog('i', 'Writing results.json...')
-    jsonfile = os.path.join(plugin_params['results_dir'], 'results.json')
-    with open(jsonfile) as outfile:
-        json.dump(plugin_result, indent=4, sort_keys=True)
-
-    __exit__('Stopping after generating the pluign data. Need to finish figuring '
-        'out how to generate output links.')
-
-
-    writelog('i', 'AMG-232 Reporter has finished.\n')
-    return 0
+    dir_list = os.listdir(plugin_params['results_dir'])
+    old_results = [x for x in dir_list if 'IonXpress' in x]
+    if old_results:
+        writelog('d', 'Found old plugin results. Removing old to make way for new')
+        writelog('d', pp(old_results, stream=sys.stderr))
+        for i in old_results:
+            if os.path.isdir(i):
+                shutil.rmtree(i)
+            else:
+                os.remove(i)
 
 def safeKeys(indict):
     """
@@ -459,6 +288,53 @@ def safeKeys(indict):
         retdict[re.sub(r'[^0-9A-Za-z]', '_', key)] = safeKeys(value)
     return retdict
 
+def updateBarcodeSummaryReport(barcode, autorefresh=False):
+    """
+    Create a barcode summary (progress) report. Called before, during, and after
+    barcodes are being analyzed.
+    """
+    global barcode_summary
+    if barcode != '':
+        result_data = plugin_result[barcode]
+
+        # XXX see if we really even need this bit.  Might be useful if we want 
+        #     to separate the details report from the block report.
+        #report_data = plugin_report[barcode]
+    
+        # TODO: Instead of a link to a full report right here, for now, just link 
+        #       to the CSV file of data.
+        details_link = "<a target='_parent' href='{}' class='help'><span title='Click to view the detailed report for barcode {}'>{}</span><a>".format(
+            #os.path.join(barcode, plugin_params['report_name']),
+            result_data.get('results_file') or 'None',
+            barcode,
+            barcode
+        )
+        barcode_summary.append({
+            'index' : len(barcode_summary),
+            'barcode_name' : barcode,
+            'barcode_details' : details_link,
+            'sample' : result_data.get('sample_name') or 'None',
+            'num_vars' : result_data.get('num_vars') or 'None',
+            'result' : result_data.get('result') or 'None',
+        })
+
+    render_context = {
+        'autorefresh' : autorefresh,
+        'run_name' : plugin_params['prefix'], 
+        'barcode_results' : json.dumps(barcode_summary)
+    }
+
+    if barcode_report:
+        render_context.update(barcode_report)
+        createReport(
+            os.path.join(
+                plugin_params['results_dir'], 
+                plugin_params['report_name']
+            ), 
+            'barcode_summary.html', 
+            render_context
+        )
+
 def createProgressReport(progress_msg, last=False):
     """
     General method to write a message directly to the block report.
@@ -473,16 +349,12 @@ def createBlockReport():
     """
     Called at the end of the run to create a block.html report.
     """
-    #XXX TODO: Stopped here.  Need to figure out how to configure this correctly 
-    #          to output the data we want.
-    __exit__("Stopping at the createBlockReport() method. Need to finish this part.")
     writelog('i', 'Creating a block report...')
     render_context = {
         'run_name' : plugin_params['prefix'],
         'barcode_results' : json.dumps(barcode_summary)
     }
-    template = 'barcode_block.html'
-    createReport(plugin_params['block_report'], template, render_context)
+    createReport(plugin_params['block_report'],'barcode_block.html', render_context)
 
 def createReport(report_name, report_template, report_data):
     """
@@ -497,6 +369,135 @@ def createReport(report_name, report_template, report_data):
         )
     with open(report_name, 'w') as fh:
         fh.write(render_to_string(report_template, safeKeys(report_data)))
+
+def run_plugin():
+    """
+    Run the `run_amg232_pipeline.py` script on each VCF file, creating a dir of
+    results for each sample.
+    """
+    tot_barcodes = len(plugin_params['vcfs'].keys())
+
+    # Create an initial empty barcodes summary report.
+    writelog('i', 'Processing %d barcodes...' % tot_barcodes)
+    updateBarcodeSummaryReport('', True)
+
+    processed = 0
+    for barcode, vcf in sorted(plugin_params['vcfs'].items()):
+        processed += 1
+        plugin_result[barcode] = {}
+        sample_name = plugin_params['samples'][barcode]
+        plugin_result[barcode]['sample_name'] = sample_name
+
+        outdir = os.path.join(plugin_params['results_dir'], sample_name +'_out')
+        vcf = vcf.rstrip('.gz')
+        new_path = os.path.join(outdir, os.path.basename(vcf))
+
+        writelog('d', '\n  Pipeline Components:\n\tsample: {}\n\toutdir: {}\n\t'
+            'old path: {}\n\tnew_path: {}\n'.format(sample_name, outdir, vcf,
+            new_path))
+    
+        os.mkdir(os.path.join(plugin_params['results_dir'], outdir))
+        shutil.move(vcf, new_path)
+
+        writelog('i', 'Start processing sample %s...' % sample_name)
+        createProgressReport('Processing sample {} of {}...'.format(
+            processed, tot_barcodes)
+        )
+
+        cmd = [
+            os.path.join(plugin_params['plugin_dir'], 
+                'run_amg232_reporter_pipeline.py'),
+            '-g', 'TP53',
+            '-n', sample_name,
+            '-o', outdir,
+            new_path
+        ]
+        p = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+        stdout, stderr = p.communicate()
+
+        # TODO: Do we want to soldier on here but report an error for a specific 
+        #       sample?  I think so, but let's get this up and running first. See
+        # 684 - 696 in sampleID_plugin.py for example. 
+        if p.returncode != 0:
+            writelog('e', 'Plugin failed during pipeline execution. Traced '
+                'error is: ')
+            writelog(None, stderr.decode('utf-8'))
+            return 1
+
+        results_file = os.path.join(
+            outdir, 'TSVC_variants_%s_simple.amg-232_report.csv' % sample_name
+        )
+        result, num_vars, var_report = parse_results(results_file)
+        plugin_result[barcode]['results_file'] = results_file
+        plugin_result[barcode]['result'] = result
+        plugin_result[barcode]['num_vars'] = num_vars
+        plugin_result[barcode]['variant_report'] = var_report
+
+        writelog('i', '{} result: {}'.format(sample_name, result))
+        writelog('d', pp(plugin_result[barcode], stream=sys.stderr))
+        writelog('i', 'Done with sample %s.' % sample_name)
+
+        # TODO: At this stage is when to crete the Detailed report and whatnot.
+        # Detailed report is for each individual sample.  Hold off on this for now,
+        # just focus on block report.
+
+        # createDetailedReport()
+        # createScraperLinksFolder()
+
+        updateBarcodeSummaryReport(barcode, True)
+
+    createProgressReport('Compiling barcode summary report...', True)
+    updateBarcodeSummaryReport('')
+
+    #if create_scraper:
+        #createScraperLinksFolder(plugin_params['results_dir'], 
+            #plugin_params['prefix']
+        #)
+
+def plugin_main():
+    # Get the plugin configuration and sample info
+    get_plugin_config()
+
+    # Write a nice start up message with some info about the config.
+    writelog('i', 'AMG-232 Reporter has started')
+    writelog('i', 'Run configuration:')
+    writelog(None, 'Plugin name: {}'.format(plugin_params['plugin_name']))
+    writelog(None, 'Plugin version: {}'.format(plugin_params['version']))
+    writelog(None, 'Plugin root dir: {}'.format(plugin_params['plugin_dir']))
+    writelog(None, 'Run name: {}'.format(plugin_params['run_name']))
+    writelog(None, 'Analysis dir: {}'.format(plugin_params['analysis_dir']))
+    writelog(None, 'Results dir: {}'.format(plugin_params['results_dir']))
+    writelog(None, 'Barcodes:')
+    for b, s in sorted(plugin_params['samples'].items()):
+        writelog(None, '\t{}  {}'.format(b,s))
+    writelog('i', 'There are {} samples to process.'.format(
+        len(plugin_params['samples'].items())))
+
+    # Figure out the latest TVC run, and get those VCFs for processing.
+    plugin_out_root = os.path.dirname(plugin_params['results_dir'])
+
+    # Purge any results that exist, so that we have a clean working environment!
+    purge_old_results()
+
+    # Collect the VCFs from TVC and stage them for processing.
+    collect_vcfs(plugin_out_root)
+
+    # Start running the pipeline on our samples.
+    if run_plugin():
+        return 1
+
+    # Create the output HTML links and reports.
+    if not 'Error' in plugin_result:
+        createBlockReport()
+
+    # Write out the data to a results.json to finish up.
+    writelog('i', 'Writing results.json...')
+    jsonfile = os.path.join(plugin_params['results_dir'], 'results.json')
+    with open(jsonfile, 'w') as outfile:
+        json.dump(plugin_result, outfile, indent=4, sort_keys=True)
+
+    writelog('i', 'AMG-232 Reporter has finished.\n')
+    return 0
 
 if __name__ == '__main__':
     exit(plugin_main())

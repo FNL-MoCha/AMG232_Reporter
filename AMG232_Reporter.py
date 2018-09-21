@@ -9,7 +9,7 @@ class AMG232_Reporter(IonPlugin):
     """
     Plugin to generate a TP53 variant report in support of the AMG-232 study.
     """
-    version = '0.8.20180920'
+    version = '0.9.20180921'
     major_block = False
     runtypes = [RunType.FULLCHIP, RunType.THUMB, RunType.COMPOSITE]
     runlevels = [RunLevel.DEFAULT]
