@@ -12,7 +12,7 @@
 #        3. Create an instance.html file to configure the plugin.  What if we
 #           want to change some runtime opts, like reporting other genes as well?
 #      
-# version: 0.9.20180921
+# version: 0.10.20180921
 # 2018/09/17 - D Sims
 ################################################################################
 """
