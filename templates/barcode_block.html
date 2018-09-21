@@ -62,18 +62,16 @@ $(document).ready(function() {
         schema: { model: { fields: {
           barcode_name: {type:"string"},
           sample: {type:"string"},
-          sample_id: {type:"string"},
-          coverage: {type:"float"},
-          pc_tracking_reads: {type:"float"}
+          num_vars: {type:"int"},
+          result: {type:"string"},
         } } },
         pageSize: 10
       },
       columns: [
         {field:"barcode_name"},
         {field:"sample"},
-        {field:"sample_id"},
-        {field:"coverage"},
-        {field:"pc_tracking_reads"}
+        {field:"num_vars"},
+        {field:"result"},
       ],
       rowTemplate: kendo.template($("#barcodesRowTemplate").html())
     });
@@ -87,14 +85,16 @@ $(document).ready(function() {
     <tr>
       <th title="Name of the barcode sequence and link to detailed report for reads associated with that barcode.">Barcode Name</th>
       <th title="Sample Name associated with this barcode in the experiment plan.">Sample</th>
-      <th title="Sample identification code, based on gender and homozygous or heterozygous calls made for reads at target loci.">Sample ID</th>
+      <th title="Number of TP53 Variants Observed in sample.">Number Variants</th>
+      <th title="Result of analysis.">Result</th>
     </tr>
     </thead>
     <script id="barcodesRowTemplate" type="text/x-kendo-tmpl">
       <tr>
-        <td> #= barcode_details #</td>
-        <td> #= (sample) ? sample : "None" #</td>
-        <td>#= sample_id #</td>
+        <td>#= barcode_details #</td>
+        <td>#= (sample) ? sample : "None" #</td>
+        <td>#= num_vars #</td>
+        <td>#= result #</td>
       </tr>
     </script>
   </table>
