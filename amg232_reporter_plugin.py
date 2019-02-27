@@ -300,9 +300,13 @@ def updateBarcodeSummaryReport(barcode, autorefresh=False):
             'index' : len(barcode_summary),
             'barcode_name' : barcode,
             'barcode_details' : details_link,
-            'sample' : result_data.get('sample_name') or 'None',
-            'num_vars' : result_data.get('num_vars') or 'None',
-            'result' : result_data.get('result') or 'None',
+            # 'sample' : result_data.get('sample_name') or 'None',
+            # 'num_vars' : result_data.get('num_vars') or 'None',
+            # 'result' : result_data.get('result') or 'None',
+
+            'sample' : result_data.get('sample_name', 'None'),
+            'num_vars' : result_data.get('num_vars', 'None'),
+            'result' : result_data.get('result', 'None'),
         })
 
     render_context = {
@@ -403,7 +407,12 @@ def run_plugin():
             writelog(None, stderr.decode('utf-8'))
             return 1
 
+        # TODO: Rename the report file to contain the sample name.
+        #       Add the intermediate VCF files (and annovar txt file) to the 
+        #       output as a zip file.
         results_filename = 'TSVC_variants_%s_simple.amg-232_report.csv' % barcode 
+        vcf_data = ''
+
         results_filepath = os.path.join(plugin_params['outdir'], results_filename)
         result, num_vars, var_report = parse_results(results_filepath)
 
@@ -424,7 +433,8 @@ def run_plugin():
         render_context = {
             'variant_report' : plugin_result[barcode]['variant_report'],
             'sample_name' : sample_name,
-            'results_file' : results_filename
+            'results_file' : results_filename,
+            'vcf_data' : vcf_data,
         }
 
         writelog('d', 'Creating barcode report page with the following inputs:')
