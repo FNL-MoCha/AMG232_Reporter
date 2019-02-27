@@ -12,7 +12,6 @@
 #        3. Create an instance.html file to configure the plugin.  What if we
 #           want to change some runtime opts, like reporting other genes as well?
 #      
-# version: 0.10.20180921
 # 2018/09/17 - D Sims
 ################################################################################
 """
@@ -364,8 +363,10 @@ def run_plugin():
         plugin_result[barcode] = {}
         sample_name = plugin_params['samples'][barcode]
         plugin_result[barcode]['sample_name'] = sample_name
+        #plugin_params['outdir'] = os.path.join(plugin_params['results_dir'], 
+            #sample_name)
         plugin_params['outdir'] = os.path.join(plugin_params['results_dir'], 
-            sample_name)
+            barcode)
 
         vcf = vcf.rstrip('.gz')
         new_path = os.path.join(plugin_params['outdir'], os.path.basename(vcf))
@@ -402,7 +403,7 @@ def run_plugin():
             writelog(None, stderr.decode('utf-8'))
             return 1
 
-        results_filename = 'TSVC_variants_%s_simple.amg-232_report.csv' % sample_name
+        results_filename = 'TSVC_variants_%s_simple.amg-232_report.csv' % barcode 
         results_filepath = os.path.join(plugin_params['outdir'], results_filename)
         result, num_vars, var_report = parse_results(results_filepath)
 
