@@ -11,7 +11,7 @@ import argparse
 from pprint import pprint as pp
 from collections import defaultdict
 
-version = '0.8.20180912'
+version = '0.9.20180925'
 cantran_file = os.path.join(os.path.dirname(__file__), '..', 'resource', 
     'refseq.txt')
 
@@ -30,8 +30,18 @@ def get_args():
     return args
 
 def read_file(input_file):
+    """
+    Read the Annovar input file into a dict. We want to have some of the VCF
+    information that was included in the Annovar output's "Otherinfo" column,
+    but there are no headers for this in the file.  So, first fix the header 
+    elems, and then read into a dict like normal.
+    """
+    added_elems = ['field1', 'field2', 'field3', 'vcf_chr', 'vcf_pos', 
+        'vcf_varid', 'vcf_ref', 'vcf_alt', 'vcf_qual', 'vcf_filter', 'vcf_info',
+        'vcf_format', 'vcf_data']
     with open(input_file) as fh:
         header = fh.readline().split('\t')
+        header = header[:105] + added_elems
         data = [dict(zip(header, line.split('\t'))) for line in fh]
     return data
 
@@ -78,11 +88,52 @@ def filter_data(data, genes, cantran):
                 cantran
             )
 
+        sp_conversion = {
+            'T' : 'Tolerated',
+            'D' : 'Damaging',
+            'B' : 'Benign',
+            'P' : 'Probably Damaging',
+            '.' : '-',
+        }
+        # TODO
+        # Add in the Polyphen score.  Will have to convert the Polyphen2_HVAR 
+        # column from B => Benign, D => Deleterious, etc.
+        polyphen_score = sp_conversion.get(var['Polyphen2_HVAR_pred'], '???')
+
+
+        # TODO:
+        # Add in the Sift score.  Will have to convert the SIFT_pred column
+        # from T => Tolerated, D => Deleterious, etc.
+        sift_score = sp_conversion.get(var['SIFT_pred'], '???')
+
+        # Add in the VAF data
+        # TODO:
+        vaf = get_vaf(var['vcf_info'])
+        if float(vaf) < 5:
+            continue
+
+
         wanted_data = {k : var[k] for k in ('Chr', 'Start', 'Ref', 'Alt', 
             'ExonicFunc.refGene', 'Gene.refGene')}
-        wanted_data.update({'transcript' : transcript, 'cds' : cds, 'aa' : aa })
+        wanted_data.update({
+            'vaf' : vaf,
+            'transcript' : transcript, 
+            'cds' : cds, 
+            'aa' : aa,
+            'polyphen' : polyphen_score,
+            'sift' : sift_score
+        })
         results.append(wanted_data)
     return results
+
+def get_vaf(data):
+    """
+    Grab the VAF string from the VCF info and output as a percentage. Don't have
+    to convert the string anymore; seems that it's already in percentage.
+    """
+    vaf_string = data.split(';')[0]
+    #return float(vaf_string.split('=')[1]) * 100
+    return vaf_string.split('=')[1]
 
 def get_varinfo_from_gd(variant, cantran):
     """
@@ -136,11 +187,11 @@ def print_results(results, outfile):
     else:
         outfh = sys.stdout
     csv_writer = csv.writer(outfh, lineterminator="\n", delimiter=",")
-    wanted = ('Chr', 'Start', 'Ref', 'Alt', 'Gene.refGene', 'transcript', 
-        'cds', 'aa', 'ExonicFunc.refGene')
+    wanted = ('Chr', 'Start', 'Ref', 'Alt', 'vaf', 'Gene.refGene', 
+        'transcript', 'cds', 'aa', 'ExonicFunc.refGene', 'sift', 'polyphen')
 
-    csv_writer.writerow(('Chr', 'Pos', 'Ref', 'Alt', 'Gene', 'Transcript', 'CDS',
-        'AA', 'Function'))
+    csv_writer.writerow(('Chr', 'Pos', 'Ref', 'Alt', 'VAF', 'Gene', 
+        'Transcript', 'CDS', 'AA', 'Function', 'SIFT', 'Polyphen'))
     for var in results:
         csv_writer.writerow([var.get(x) for x in wanted])
 
