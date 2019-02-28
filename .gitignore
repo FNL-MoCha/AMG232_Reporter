@@ -1,0 +1,10 @@
+test
+bak
+*~
+.DS_Store
+tmp
+*.swp
+resource/annovar_db
+*vcf
+*.pyc
+make_package.sh

@@ -75,9 +75,6 @@ $(document).ready(function() {
           CDS: {type:"string"},
           AA: {type:"string"},
           Function: {type:"string"},
-          SIFT: {type:"string"},
-          Polyphen: {type:"string"},
-          VAF: {type:"string"},
         } } },
         pageSize: 10
       },
@@ -86,14 +83,11 @@ $(document).ready(function() {
         {field:"Pos"},
         {field:"Ref"},
         {field:"Alt"},
-        {field:"VAF"},
         {field:"Gene"},
         {field:"Transcript"},
         {field:"CDS"},
         {field:"AA"},
         {field:"Function"},
-        {field:"SIFT"},
-        {field:"Polyphen"},
       ],
       rowTemplate: kendo.template($("#barcodesRowTemplate").html())
     });
@@ -109,14 +103,11 @@ $(document).ready(function() {
       <th title="GRCh37 (hg19) position at which this change occurs.">Position</th>
       <th title="Reference sequence at this position.">Ref</th>
       <th title="Alterative allele observed at this position">Alt</th>
-      <th title="Variant Allele Frequency.">VAF</th>
       <th title="HUGO gene name at the position">Gene</th>
       <th title="Refseq transcript ID used for this analysis.">Transcript</th>
       <th title="HGVS coding seuqence change nomenclature.">CDS</th>
       <th title="HGVS amino acid change nomenclature.">AA</th>
       <th title="Functional consequence of the observed variant on the protein.">Function</th>
-      <th title="SIFT prediction for this variant if available.">SIFT</th>
-      <th title="Polyphen prediction for this variant if available">Polyphen</th>
     </tr>
     </thead>
 
@@ -126,27 +117,32 @@ $(document).ready(function() {
         <td>#= Pos #</td>
         <td>#= Ref #</td>
         <td>#= Alt #</td>
-        <td>#= VAF #</td>
         <td>#= Gene #</td>
         <td>#= Transcript #</td>
         <td>#= CDS #</td>
         <td>#= AA #</td>
         <td>#= Function #</td>
-        <td>#= SIFT #</td>
-        <td>#= Polyphen #</td>
       </tr>
     </script>
   </table>
 </div>
 
 {% if results_file %}
-<li><a href="{{results_file}}" title='Click to download a table file of the Barcode Summary Report presented above.'>Download Sample Variant Report CSV File</a></li>
+<ul>
+  <li>
+    <a href="{{results_file}}" title='Click to download a table file of the Barcode Summary Report presented above.'>Download Sample Variant Report CSV File</a>
+  </li>
+  <li>
+    <a href="{{vcf_data}}" title='Click to download the intermediate VCF and Annovar data.'>Download Intermediate VCF Files</a>
+  </li>
+</ul>
 {% endif %}
 
 {% if autorefresh %}
 <br/><h3 style="text-align:center;color:red">*** Analysis is not complete ***</h3>
 <a href="javascript:document.location.reload();" ONMOUSEOVER="window.status='Refresh'; return true">
-<div style="text-align:center">Click here to refresh</div></a>
+  <div style="text-align:center">Click here to refresh</div>
+</a>
 {% endif %}
 </div>
 <br/>
