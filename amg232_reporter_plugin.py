@@ -6,10 +6,7 @@
 # 
 # TODO:
 #    List of things to still accomplish
-#        1. Error checking / handling.  how can we deal with sample failures
-#        2. Optimization. Are there any steps that we can speed up?  Parallel
-#           process?
-#        3. Create an instance.html file to configure the plugin.  What if we
+#        1. Create an instance.html file to configure the plugin.  What if we
 #           want to change some runtime opts, like reporting other genes as well?
 #      
 # 2018/09/17 - D Sims
@@ -28,6 +25,7 @@ import argparse
 import datetime
 import shutil
 import csv
+import zipfile
 
 from pprint import pprint as pp
 
@@ -41,6 +39,7 @@ register = template.Library()
 template.builtins.append(register)
 
 # Set up some logger defaults. 
+# TODO: Lower this log level.
 loglevel = 'debug' # Min level to be reported to log.
 logfile = sys.stderr
 
@@ -300,10 +299,6 @@ def updateBarcodeSummaryReport(barcode, autorefresh=False):
             'index' : len(barcode_summary),
             'barcode_name' : barcode,
             'barcode_details' : details_link,
-            # 'sample' : result_data.get('sample_name') or 'None',
-            # 'num_vars' : result_data.get('num_vars') or 'None',
-            # 'result' : result_data.get('result') or 'None',
-
             'sample' : result_data.get('sample_name', 'None'),
             'num_vars' : result_data.get('num_vars', 'None'),
             'result' : result_data.get('result', 'None'),
@@ -367,17 +362,17 @@ def run_plugin():
         plugin_result[barcode] = {}
         sample_name = plugin_params['samples'][barcode]
         plugin_result[barcode]['sample_name'] = sample_name
-        #plugin_params['outdir'] = os.path.join(plugin_params['results_dir'], 
-            #sample_name)
         plugin_params['outdir'] = os.path.join(plugin_params['results_dir'], 
             barcode)
 
         vcf = vcf.rstrip('.gz')
-        new_path = os.path.join(plugin_params['outdir'], os.path.basename(vcf))
+        path, vcf_file = os.path.split(vcf)
+        new_vcf = '{}_{}'.format(sample_name, vcf_file.lstrip('TSVC_variants_'))
+        new_path = os.path.join(plugin_params['outdir'], new_vcf)
 
         writelog('d', '\n  Pipeline Components:\n\tsample: {}\n\toutdir: {}\n\t'
             'old path: {}\n\tnew_path: {}\n'.format(sample_name, 
-            plugin_params['outdir'], vcf,new_path))
+            plugin_params['outdir'], vcf, new_path))
     
         os.mkdir(os.path.join(plugin_params['results_dir'], plugin_params['outdir']))
         shutil.move(vcf, new_path)
@@ -407,11 +402,8 @@ def run_plugin():
             writelog(None, stderr.decode('utf-8'))
             return 1
 
-        # TODO: Rename the report file to contain the sample name.
-        #       Add the intermediate VCF files (and annovar txt file) to the 
-        #       output as a zip file.
-        results_filename = 'TSVC_variants_%s_simple.amg-232_report.csv' % barcode 
-        vcf_data = ''
+        results_filename = '{}_{}_simple.amg-232_report.csv'.format(sample_name,
+            barcode)
 
         results_filepath = os.path.join(plugin_params['outdir'], results_filename)
         result, num_vars, var_report = parse_results(results_filepath)
@@ -425,6 +417,13 @@ def run_plugin():
         writelog('i', '{} result: {}'.format(sample_name, result))
         writelog('d', pp(plugin_result[barcode], stream=sys.stderr))
 
+        # Create a zipfile of intermediate files that can be used for downstream
+        # analysis and verification.
+        zipname = os.path.join(plugin_params['outdir'], 
+            '{}_{}_amg232_reporter_intermediate_files.zip'.format(sample_name, 
+                barcode))
+        collect_results(plugin_params['outdir'], zipname)
+
         # Create the sample specific report page
         html_report = os.path.join(
             plugin_params['outdir'], 
@@ -434,7 +433,7 @@ def run_plugin():
             'variant_report' : plugin_result[barcode]['variant_report'],
             'sample_name' : sample_name,
             'results_file' : results_filename,
-            'vcf_data' : vcf_data,
+            'vcf_data' : os.path.basename(zipname),
         }
 
         writelog('d', 'Creating barcode report page with the following inputs:')
@@ -449,6 +448,22 @@ def run_plugin():
 
     createProgressReport('Compiling barcode summary report...', True)
     updateBarcodeSummaryReport('')
+
+def collect_results(outdir, zipname):
+    """
+    Generate a zip file of VCF and Annovar intermediate data for variant review
+    and analysis.
+    """
+    wanted = ('annovar.txt', 'vcf')
+    manifest = [os.path.join(outdir, f) for f in os.listdir(outdir) if any(
+        f.endswith(x) for x in wanted)]
+    writelog('d', 'Files to be collected and zipped: ')
+    writelog('d', pp(manifest, stream=sys.stderr))
+
+    with zipfile.ZipFile(zipname, 'w') as zfh:
+        for f in manifest:
+            zfh.write(f, arcname=os.path.basename(f))
+    return
 
 def plugin_main():
     # Get the plugin configuration and sample info
