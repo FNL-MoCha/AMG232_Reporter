@@ -39,8 +39,8 @@ register = template.Library()
 template.builtins.append(register)
 
 # Set up some logger defaults. 
-# TODO: Lower this log level.
-loglevel = 'debug' # Min level to be reported to log.
+# Min level to be reported to log. levels are 'info', 'warn', 'error', 'debug'
+loglevel = 'error' 
 logfile = sys.stderr
 
 plugin_params = {} # Holder for all plugin parameters
